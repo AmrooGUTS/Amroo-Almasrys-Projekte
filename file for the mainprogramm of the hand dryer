@@ -1,0 +1,168 @@
+/*#include "mbed.h"
+#include "LCD.h"
+#include <cstdio>
+#include "cmsis.h" 
+
+
+I2C temp_sensor(I2C_SDA, I2C_SCL);
+BufferedSerial pc(USBTX, USBRX, 9600);
+
+const int temp_addr = 0x90;
+char commands[] = {0x51, 0xAA};
+char read_temp[2];
+char res[16];
+ // <-- FIXED
+
+ShiftRegister lcd(D11, D13, D10);
+DigitalOut led(LED1);
+AnalogIn pot(A0);
+PwmOut Led2(D3);
+
+Thread thread1;
+void led1_thread(void const *args){
+    led = 0;
+    while(true){
+        led = !led;
+        thread_sleep_for(500);
+    }
+}
+
+Mutex lcd_mutex;
+Thread thread2;
+void count_thread(void const *args){
+    char k = 0;
+    while(1){
+        lcd_mutex.lock();
+        lcd.set_cursor_RS(1, 0);
+        wait_us(40);
+        lcd.printSR("count is");
+        lcd.write_SR(k|0x30);
+        k++;
+        if(k>9)k=0;
+        thread_sleep_for(1000);
+        lcd_mutex.unlock();
+
+    }
+}
+
+Thread thread3;
+
+void temp_thread(void const *args){
+    while(1){
+        lcd_mutex.lock();
+
+        // Start temperature conversion (0x51)
+        temp_sensor.write(temp_addr, &commands[0], 1, false);
+        thread_sleep_for(500);
+
+        temp_sensor.write(temp_addr, &commands[1], 1, false);
+        temp_sensor.read(temp_addr, read_temp, 2);
+
+        float temp = (float((read_temp[0] << 8) | read_temp[1]) / 256);
+
+        printf("Temp = %d.%d\r\n", int(temp), int((temp - int(temp)) * 10));
+        sprintf(res, "%d.%d", int(temp), int((temp - int(temp)) * 10));
+
+        lcd.set_cursor_RS(0, 0);
+        
+
+        lcd.printSR("Temp:");
+        ThisThread::sleep_for(200ms);
+        lcd.set_cursor_RS(0, 6);
+        lcd.printSR(res);
+        temp_sensor.write(temp_addr, &commands[0], 1, false);
+
+        lcd_mutex.unlock();
+        thread_sleep_for(1000);
+        }
+}
+
+Thread thread4;
+
+void led2(void const *args){
+    while(1){
+        Led2 = pot;
+    }
+}
+
+
+int main() {
+    lcd.init_RS();
+    lcd.clear();
+    thread1.start(callback(led1_thread, &led));
+    thread2.start(callback(count_thread, &lcd));
+    thread3.start(callback(temp_thread, &temp_sensor));
+    thread4.start(callback(led2, &Led2));
+
+    while(1) {
+        __WFI();
+    }
+}*/
+#include "mbed.h"
+#include "LCD.h"
+#include <cstdio>
+
+DigitalIn motion(D2);  // Motion sensor OUT pin
+DigitalOut led(LED1);    // Status LED
+PwmOut right(D3);      // BTS7960 RPWM
+DigitalOut enableb(D4);
+AnalogIn potspeed(A0);
+ShiftRegister lcd(D11, D13, D10);
+PwmOut left(D9);       // BTS7960 LPWM
+ // BTS7960 L_EN
+ bool lastmotion =false; 
+char buffer[32];
+
+Mutex general;
+
+Thread thread1;
+
+void lcd_display(){
+    while(1){
+        //general.lock();
+        float speed = potspeed.read();
+        int percent = (int)(speed * 100);
+        sprintf(buffer , "speed is %3d%%", percent);
+        lcd.set_cursor_RS(0, 0);
+        ThisThread::sleep_for(200ms);
+        lcd.printSR(buffer);
+        ThisThread::sleep_for(100ms);
+        //general.unlock();
+    }
+}
+
+Thread thread2;
+void motor_sensor(){
+    while(1){
+        //general.lock();
+        if (motion == 1) {
+            float speed = potspeed.read();
+            
+            
+            enableb.write(1);       // Enable right direction
+            right.write(speed);         // Full speed forward
+            left.write(0);          // Ensure no reverse signal
+            
+            
+        } else {
+            right.write(0);         // Stop motor
+            left.write(0);
+            enableb.write(0);      
+            ThisThread::sleep_for(200ms);  // Disable driver (optional for safety)
+            
+
+        }
+        //general.unlock();
+    }
+}
+int main() {
+    lcd.init_RS();
+    lcd.clear();
+    thread1.start(callback(lcd_display));
+    thread2.start(callback(motor_sensor));
+    while (true) {
+        
+        __WFI();
+        
+    }
+}
